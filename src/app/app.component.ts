@@ -1,12 +1,7 @@
-/**
- * Sample app showcasing gojs-angular components
- * For use with gojs-angular version 2.x
- */
-
-import { ChangeDetectorRef, Component, ViewChild, ViewEncapsulation } from '@angular/core';
+import {Component, OnInit, ViewChild, ViewEncapsulation} from '@angular/core';
 import * as go from 'gojs';
-import { DataSyncService, DiagramComponent, PaletteComponent } from 'gojs-angular';
-import produce from "immer";
+import { DiagramComponent, PaletteComponent } from 'gojs-angular';
+import {InputComponent} from "./components/input/input.component";
 
 @Component({
   selector: 'app-root',
@@ -14,215 +9,334 @@ import produce from "immer";
   styleUrls: ['./app.component.css'],
   encapsulation: ViewEncapsulation.ShadowDom
 })
-export class AppComponent {
+export class AppComponent implements OnInit {
+  @ViewChild('myDiagramDiv', { static: true }) public myDiagramComponent;
+  @ViewChild('myPaletteDiv', { static: true }) public myPaletteComponent;
+  private myDiagram: go.Diagram;
+  private myPalette: go.Palette;
+  constructor() {
+  }
 
-  @ViewChild('myDiagram', { static: true }) public myDiagramComponent: DiagramComponent;
-  @ViewChild('myPalette', { static: true }) public myPaletteComponent: PaletteComponent;
+  ngOnInit() {
+    this.myDiagram = this.initDiagram();
+    this.myPalette = this.initPalette(this.myDiagram);
+  }
+  private initDiagram() {
+    const $ = go.GraphObject.make;  // for conciseness in defining templates
 
-  // Big object that holds app-level state data
-  // As of gojs-angular 2.0, immutability is expected and required of state for ease of change detection.
-  // Whenever updating state, immutability must be preserved. It is recommended to use immer for this, a small package that makes working with immutable data easy.
-  public state = {
-    // Diagram state props
-    diagramNodeData: [
-      { id: 'Alpha', text: "Alpha", color: 'lightblue', loc: "0 0" },
-      { id: 'Beta', text: "Beta", color: 'orange', loc: "100 0" },
-      { id: 'Gamma', text: "Gamma", color: 'lightgreen', loc: "0 100" },
-      { id: 'Delta', text: "Delta", color: 'pink', loc: "100 100" }
-    ],
-    diagramLinkData: [
-        { key: -1, from: 'Alpha', to: 'Beta', fromPort: 'r', toPort: '1' },
-        { key: -2, from: 'Alpha', to: 'Gamma', fromPort: 'b', toPort: 't' },
-        { key: -3, from: 'Beta', to: 'Beta' },
-        { key: -4, from: 'Gamma', to: 'Delta', fromPort: 'r', toPort: 'l' },
-        { key: -5, from: 'Delta', to: 'Alpha', fromPort: 't', toPort: 'r' }
-    ],
-    diagramModelData: { prop: 'value' },
-    skipsDiagramUpdate: false,
-    selectedNodeData: null, // used by InspectorComponent
-
-    // Palette state props
-    paletteNodeData: [
-      { key: 'Epsilon', text: 'Epsilon', color: 'red' },
-      { key: 'Kappa', text: 'Kappa', color: 'purple' }
-    ],
-    paletteModelData: { prop: 'val' }
-  };
-  
-  public diagramDivClassName: string = 'myDiagramDiv';
-  public paletteDivClassName = 'myPaletteDiv';
-
-  // initialize diagram / templates
-  public initDiagram(): go.Diagram {
-
-    const $ = go.GraphObject.make;
-    const dia = $(go.Diagram, {
-      'undoManager.isEnabled': true,
-      'clickCreatingTool.archetypeNodeData': { text: 'new node', color: 'lightblue' },
-      model: $(go.GraphLinksModel,
+    const myDiagram =
+      new go.Diagram(this.myDiagramComponent.nativeElement,  // must name or refer to the DIV HTML element
         {
-          nodeKeyProperty: 'id',
-          linkToPortIdProperty: 'toPort',
-          linkFromPortIdProperty: 'fromPort',
-          linkKeyProperty: 'key' // IMPORTANT! must be defined for merges and data sync when using GraphLinksModel
-        }
-      )
+          grid: $(go.Panel, 'Grid',
+            $(go.Shape, 'LineH', {stroke: 'lightgray', strokeWidth: 0.5}),
+            $(go.Shape, 'LineH', {stroke: 'gray', strokeWidth: 0.5, interval: 10}),
+            $(go.Shape, 'LineV', {stroke: 'lightgray', strokeWidth: 0.5}),
+            $(go.Shape, 'LineV', {stroke: 'gray', strokeWidth: 0.5, interval: 10})
+          ),
+          'draggingTool.dragsLink': true,
+          'draggingTool.isGridSnapEnabled': true,
+          'linkingTool.isUnconnectedLinkValid': true,
+          'linkingTool.portGravity': 20,
+          'relinkingTool.isUnconnectedLinkValid': true,
+          'relinkingTool.portGravity': 20,
+          'relinkingTool.fromHandleArchetype':
+            $(go.Shape, 'Diamond',
+              {
+                segmentIndex: 0, cursor: 'pointer',
+                desiredSize: new go.Size(8, 8), fill: 'tomato', stroke: 'darkred'
+              }),
+          'relinkingTool.toHandleArchetype':
+            $(go.Shape, 'Diamond',
+              {
+                segmentIndex: -1, cursor: 'pointer',
+                desiredSize: new go.Size(8, 8), fill: 'darkred', stroke: 'tomato'
+              }),
+          'linkReshapingTool.handleArchetype':
+            $(go.Shape, 'Diamond',
+              {desiredSize: new go.Size(7, 7), fill: 'lightblue', stroke: 'deepskyblue'}),
+          'rotatingTool.handleAngle': 270,
+          'rotatingTool.handleDistance': 30,
+          'rotatingTool.snapAngleMultiple': 15,
+          'rotatingTool.snapAngleEpsilon': 15,
+          'undoManager.isEnabled': true
+        });
+
+    // when the document is modified, add a '*' to the title and enable the 'Save' button
+    myDiagram.addDiagramListener('Modified', e => {
+      const button = document.getElementById('SaveButton') as HTMLInputElement;
+      if (button) button.disabled = !myDiagram.isModified;
+      const idx = document.title.indexOf('*');
+      if (myDiagram.isModified) {
+        if (idx < 0) document.title += '*';
+      } else {
+        if (idx >= 0) document.title = document.title.slice(0, idx);
+      }
     });
 
-    dia.commandHandler.archetypeGroupData = { key: 'Group', isGroup: true };
+    // Define a function for creating a 'port' that is normally transparent.
+    // The 'name' is used as the GraphObject.portId, the 'spot' is used to control how links connect
+    // and where the port is positioned on the node, and the boolean 'output' and 'input' arguments
+    // control whether the user can draw links from or to the port.
 
-    const makePort = function(id: string, spot: go.Spot) {
-      return $(go.Shape, 'Circle',
-        {
-          opacity: .5,
-          fill: 'gray', strokeWidth: 0, desiredSize: new go.Size(8, 8),
-          portId: id, alignment: spot,
-          fromLinkable: true, toLinkable: true
-        }
+    const nodeSelectionAdornmentTemplate =
+      $(go.Adornment, 'Auto',
+        $(go.Shape, {fill: null, stroke: 'deepskyblue', strokeWidth: 1.5, strokeDashArray: [4, 2]}),
+        $(go.Placeholder)
       );
-    }
 
-    // define the Node template
-    dia.nodeTemplate =
+    const nodeResizeAdornmentTemplate =
+      $(go.Adornment, 'Spot',
+        {locationSpot: go.Spot.Right},
+        $(go.Placeholder),
+        $(go.Shape, {
+          alignment: go.Spot.TopLeft, cursor: 'nw-resize',
+          desiredSize: new go.Size(6, 6), fill: 'lightblue', stroke: 'deepskyblue'
+        }),
+        $(go.Shape, {
+          alignment: go.Spot.Top, cursor: 'n-resize',
+          desiredSize: new go.Size(6, 6), fill: 'lightblue', stroke: 'deepskyblue'
+        }),
+        $(go.Shape, {
+          alignment: go.Spot.TopRight, cursor: 'ne-resize',
+          desiredSize: new go.Size(6, 6), fill: 'lightblue', stroke: 'deepskyblue'
+        }),
+
+        $(go.Shape, {
+          alignment: go.Spot.Left, cursor: 'w-resize',
+          desiredSize: new go.Size(6, 6), fill: 'lightblue', stroke: 'deepskyblue'
+        }),
+        $(go.Shape, {
+          alignment: go.Spot.Right, cursor: 'e-resize',
+          desiredSize: new go.Size(6, 6), fill: 'lightblue', stroke: 'deepskyblue'
+        }),
+
+        $(go.Shape, {
+          alignment: go.Spot.BottomLeft, cursor: 'se-resize',
+          desiredSize: new go.Size(6, 6), fill: 'lightblue', stroke: 'deepskyblue'
+        }),
+        $(go.Shape, {
+          alignment: go.Spot.Bottom, cursor: 's-resize',
+          desiredSize: new go.Size(6, 6), fill: 'lightblue', stroke: 'deepskyblue'
+        }),
+        $(go.Shape, {
+          alignment: go.Spot.BottomRight, cursor: 'sw-resize',
+          desiredSize: new go.Size(6, 6), fill: 'lightblue', stroke: 'deepskyblue'
+        })
+      );
+
+    const nodeRotateAdornmentTemplate =
+      $(go.Adornment,
+        {locationSpot: go.Spot.Center, locationObjectName: 'ELLIPSE'},
+        $(go.Shape, 'Ellipse', {
+          name: 'ELLIPSE', cursor: 'pointer',
+          desiredSize: new go.Size(7, 7), fill: 'lightblue', stroke: 'deepskyblue'
+        }),
+        $(go.Shape, {
+          geometryString: 'M3.5 7 L3.5 30', isGeometryPositioned: true,
+          stroke: 'deepskyblue', strokeWidth: 1.5, strokeDashArray: [4, 2]
+        })
+      );
+
+    myDiagram.nodeTemplate =
       $(go.Node, 'Spot',
-        {
-          contextMenu:
-            $('ContextMenu',
-              $('ContextMenuButton',
-                $(go.TextBlock, 'Group'),
-                { click: function(e, obj) { e.diagram.commandHandler.groupSelection(); } },
-                new go.Binding('visible', '', function(o) {
-                  return o.diagram.selection.count > 1;
-                }).ofObject())
-            )
-        },
-        new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
+        {locationSpot: go.Spot.Center},
+        new go.Binding('location', 'loc', go.Point.parse).makeTwoWay(go.Point.stringify),
+        {selectable: true, selectionAdornmentTemplate: nodeSelectionAdornmentTemplate},
+        {resizable: true, resizeObjectName: 'PANEL', resizeAdornmentTemplate: nodeResizeAdornmentTemplate},
+        {rotatable: true, rotateAdornmentTemplate: nodeRotateAdornmentTemplate},
+        new go.Binding('angle').makeTwoWay(),
+        // the main object is a Panel that surrounds a TextBlock with a Shape
         $(go.Panel, 'Auto',
-          $(go.Shape, 'RoundedRectangle', { stroke: null },
-            new go.Binding('fill', 'color', (c, panel) => {
-             
-              return c;
-            })
-          ),
-          $(go.TextBlock, { margin: 8, editable: true },
+          {name: 'PANEL'},
+          new go.Binding('desiredSize', 'size', go.Size.parse).makeTwoWay(go.Size.stringify),
+          $(go.Shape, 'Rectangle',  // default figure
+            {
+              portId: '', // the default port: if no spot on link data, use closest side
+              fromLinkable: true, toLinkable: true, cursor: 'pointer',
+              fill: 'white',  // default color
+              strokeWidth: 2
+            },
+            new go.Binding('figure'),
+            new go.Binding('fill')),
+          $(go.TextBlock,
+            {
+              font: 'bold 10pt Helvetica, Arial, sans-serif',
+              margin: 8,
+              maxSize: new go.Size(160, NaN),
+              wrap: go.TextBlock.WrapFit,
+              editable: true
+            },
             new go.Binding('text').makeTwoWay())
         ),
-        // Ports
-        makePort('t', go.Spot.TopCenter),
-        makePort('l', go.Spot.Left),
-        makePort('r', go.Spot.Right),
-        makePort('b', go.Spot.BottomCenter)
+        // four small named ports, one on each side:
+        this.makePort('R', go.Spot.Right, true, false),
+        this.makePort('L', go.Spot.Left, false, true),
+        { // handle mouse enter/leave events to show/hide the ports
+          mouseEnter: (e, node) => this.showSmallPorts(node, true),
+          mouseLeave: (e, node) => this.showSmallPorts(node, false)
+        }
       );
 
-    return dia;
+
+
+    const linkSelectionAdornmentTemplate =
+      $(go.Adornment, 'Link',
+        $(go.Shape,
+          // isPanelMain declares that this Shape shares the Link.geometry
+          {isPanelMain: true, fill: null, stroke: 'deepskyblue', strokeWidth: 0})  // use selection object's strokeWidth
+      );
+
+    myDiagram.linkTemplate =
+      $(go.Link,  // the whole link panel
+        {selectable: true, selectionAdornmentTemplate: linkSelectionAdornmentTemplate},
+        {relinkableFrom: true, relinkableTo: true, reshapable: true},
+        {
+          routing: go.Link.AvoidsNodes,
+          curve: go.Link.JumpOver,
+          corner: 5,
+          toShortLength: 4
+        },
+        new go.Binding('points').makeTwoWay(),
+        $(go.Shape,  // the link path shape
+          {isPanelMain: true, strokeWidth: 2}),
+        $(go.Shape,  // the arrowhead
+          {toArrow: 'Standard', stroke: null}),
+        $(go.Panel, 'Auto',
+          new go.Binding('visible', 'isSelected').ofObject(),
+          $(go.Shape, 'RoundedRectangle',  // the link shape
+            {fill: '#F8F8F8', stroke: null}),
+          $(go.TextBlock,
+            {
+              textAlign: 'center',
+              font: '10pt helvetica, arial, sans-serif',
+              stroke: '#919191',
+              margin: 2,
+              minSize: new go.Size(10, NaN),
+              editable: true
+            },
+            new go.Binding('text').makeTwoWay())
+        )
+      );
+
+    // this.load();
+    return myDiagram
+  }// load an initial diagram from some JSON text
+
+    // initialize the Palette that is on the left side of the page
+  private initPalette(diagram: go.Diagram) {
+    const $ = go.GraphObject.make;
+    const myPalette =
+      new go.Palette(this.myPaletteComponent.nativeElement,  // must name or refer to the DIV HTML element
+        {
+          maxSelectionCount: 1,
+          nodeTemplateMap: diagram.nodeTemplateMap,  // share the templates used by myDiagram
+          linkTemplate: // simplify the link template, just in this Palette
+            $(go.Link,
+              { // because the GridLayout.alignment is Location and the nodes have locationSpot == Spot.Center,
+                // to line up the Link in the same manner we have to pretend the Link has the same location spot
+                locationSpot: go.Spot.Center,
+                selectionAdornmentTemplate:
+                  $(go.Adornment, 'Link',
+                    { locationSpot: go.Spot.Center },
+                    $(go.Shape,
+                      { isPanelMain: true, fill: null, stroke: 'deepskyblue', strokeWidth: 0 }),
+                    $(go.Shape,  // the arrowhead
+                      { toArrow: 'Standard', stroke: null })
+                  )
+              },
+              {
+                routing: go.Link.AvoidsNodes,
+                curve: go.Link.JumpOver,
+                corner: 5,
+                toShortLength: 4
+              },
+              new go.Binding('points'),
+              $(go.Shape,  // the link path shape
+                { isPanelMain: true, strokeWidth: 2 }),
+              $(go.Shape,  // the arrowhead
+                { toArrow: 'Standard', stroke: null })
+            ),
+          model: new go.GraphLinksModel([  // specify the contents of the Palette
+            { text: 'Prime Texto', component: InputComponent },
+            { text: 'Entrada de Texto', figure: 'RoundedRectangle', fill: 'lightyellow' },
+            { text: 'Escolha', figure: 'Diamond', fill: 'lightskyblue' },
+            { text: 'Redirecionamento', figure: 'RoundedRectangle', fill: 'lightgray' },
+            { text: 'End', figure: 'Ellipse', size:'75 75', fill: '#CE0620' }
+          ], [
+            // the Palette also has a disconnected Link, which the user can drag-and-drop
+            { points: new go.List(/*go.Point*/).addAll([new go.Point(0, 0),
+                new go.Point(30, 0), new go.Point(30, 40), new go.Point(60, 40)]) }
+          ])
+        });
+
+      return myPalette;
   }
 
-  // When the diagram model changes, update app data to reflect those changes. Be sure to use immer's "produce" function to preserve immutability
-  public diagramModelChange = function(changes: go.IncrementalData) {
-    if (!changes) return;
-    const appComp = this;
-    this.state = produce(this.state, draft => {
-      // set skipsDiagramUpdate: true since GoJS already has this update
-      // this way, we don't log an unneeded transaction in the Diagram's undoManager history
-      draft.skipsDiagramUpdate = true;
-      draft.diagramNodeData = DataSyncService.syncNodeData(changes, draft.diagramNodeData, appComp.observedDiagram.model);
-      draft.diagramLinkData = DataSyncService.syncLinkData(changes, draft.diagramLinkData, appComp.observedDiagram.model);
-      draft.diagramModelData = DataSyncService.syncModelData(changes, draft.diagramModelData);
-      // If one of the modified nodes was the selected node used by the inspector, update the inspector selectedNodeData object
-      const modifiedNodeDatas = changes.modifiedNodeData;
-      if (modifiedNodeDatas && draft.selectedNodeData) {
-        for (let i = 0; i < modifiedNodeDatas.length; i++) {
-          const mn = modifiedNodeDatas[i];
-          const nodeKeyProperty = appComp.myDiagramComponent.diagram.model.nodeKeyProperty as string;
-          if (mn[nodeKeyProperty] === draft.selectedNodeData[nodeKeyProperty]) {
-            draft.selectedNodeData = mn;
-          }
-        }
+  showSmallPorts(node, show) {
+    node.ports.each(port => {
+      if (port.portId !== '') {  // don't change the default port, which is the big shape
+        port.fill = show ? 'rgba(0,0,0,.3)' : null;
       }
     });
-  };
-
-  public initPalette(): go.Palette {
-    const $ = go.GraphObject.make;
-    const palette = $(go.Palette);
-
-    // define the Node template
-    palette.nodeTemplate =
-      $(go.Node, 'Auto',
-        $(go.Shape, 'RoundedRectangle',
-          {
-            stroke: null
-          },
-          new go.Binding('fill', 'color')
-        ),
-        $(go.TextBlock, { margin: 8 },
-          new go.Binding('text', 'key'))
-      );
-
-    palette.model = $(go.GraphLinksModel);
-    return palette;
   }
 
-  constructor(private cdr: ChangeDetectorRef) { }
-
-  // Overview Component testing
-  public oDivClassName = 'myOverviewDiv';
-  public initOverview(): go.Overview {
-    const $ = go.GraphObject.make;
-    const overview = $(go.Overview);
-    return overview;
-  }
-  public observedDiagram = null;
-
-  // currently selected node; for inspector
-  public selectedNodeData: go.ObjectData = null;
-
-  public ngAfterViewInit() {
-    if (this.observedDiagram) return;
-    this.observedDiagram = this.myDiagramComponent.diagram;
-    this.cdr.detectChanges(); // IMPORTANT: without this, Angular will throw ExpressionChangedAfterItHasBeenCheckedError (dev mode only)
-
-    const appComp: AppComponent = this;
-    // listener for inspector
-    this.myDiagramComponent.diagram.addDiagramListener('ChangedSelection', function(e) {
-      if (e.diagram.selection.count === 0) {
-        appComp.selectedNodeData = null;
-      }
-      const node = e.diagram.selection.first();
-      appComp.state = produce(appComp.state, draft => {
-        if (node instanceof go.Node) {
-          var idx = draft.diagramNodeData.findIndex(nd => nd.id == node.data.id);
-          var nd = draft.diagramNodeData[idx];
-          draft.selectedNodeData = nd;
-        } else {
-          draft.selectedNodeData = null;
-        }
+  makePort(name, spot, output, input) {
+    // the port is basically just a small transparent circle
+    return go.GraphObject.make(go.Shape, 'Circle',
+      {
+        fill: null,  // not seen, by default; set to a translucent gray by showSmallPorts, defined below
+        stroke: null,
+        desiredSize: new go.Size(7, 7),
+        alignment: spot,  // align the port on the main Shape
+        alignmentFocus: spot,  // just inside the Shape
+        portId: name,  // declare this object to be a 'port'
+        fromSpot: spot, toSpot: spot,  // declare where links may connect at this port
+        fromLinkable: output, toLinkable: input,  // declare whether the user may draw links to/from here
+        cursor: 'pointer'  // show a different cursor to indicate potential link point
       });
-    });
-  } // end ngAfterViewInit
-
-
-  /**
-   * Update a node's data based on some change to an inspector row's input
-   * @param changedPropAndVal An object with 2 entries: "prop" (the node data prop changed), and "newVal" (the value the user entered in the inspector <input>)
-   */
-  public handleInspectorChange(changedPropAndVal) {
-
-    const path = changedPropAndVal.prop;
-    const value = changedPropAndVal.newVal;
-
-    this.state = produce(this.state, draft => {
-      var data = draft.selectedNodeData;
-      data[path] = value;
-      const key = data.id;
-      const idx = draft.diagramNodeData.findIndex(nd => nd.id == key);
-      if (idx >= 0) {
-        draft.diagramNodeData[idx] = data;
-        draft.skipsDiagramUpdate = false; // we need to sync GoJS data with this new app state, so do not skips Diagram update
-      }
-    });
   }
 
+
+  // Show the diagram's model in JSON format that the user may edit
+  save() {
+    this.saveDiagramProperties();  // Antes de escrever para JSON
+    const diagramJson = this.myDiagramComponent.diagram.model.toJson();
+    // Salvar o JSON em um local de sua escolha (por exemplo, localStorage)
+    localStorage.setItem('savedDiagram', diagramJson);
+    this.myDiagramComponent.diagram.isModified = false;
+  }
+  load() {
+    const savedDiagramJson = localStorage.getItem('savedDiagram');
+    if (savedDiagramJson) {
+      // Carregar o diagrama JSON de onde você o salvou (por exemplo, localStorage)
+      this.myDiagramComponent.diagram.model = go.Model.fromJson(savedDiagramJson);
+      this.loadDiagramProperties();  // Após o carregamento do modelo
+    }
+  }
+
+  saveDiagramProperties() {
+    this.myDiagramComponent.diagram.model.modelData.position = go.Point.stringify(this.myDiagramComponent.diagram.position);
+  }
+
+  loadDiagramProperties() {
+    const pos = this.myDiagramComponent.diagram.model.modelData.position;
+    if (pos) this.myDiagramComponent.diagram.initialPosition = go.Point.parse(pos);
+  }
+
+  saveDiagram() {
+    this.saveDiagramProperties();
+    const diagramJson = this.myDiagram.model.toJson();
+    localStorage.setItem('savedDiagram', diagramJson);
+    this.myDiagram.isModified = false;
+  }
+
+  loadDiagram() {
+    const savedDiagramJson = localStorage.getItem('savedDiagram');
+    if (savedDiagramJson) {
+      this.myDiagram.model = go.Model.fromJson(savedDiagramJson);
+      this.loadDiagramProperties();
+    }
+  }
 
 }
 
